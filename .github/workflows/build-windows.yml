@@ -34,27 +34,46 @@ jobs:
           rustc --version
           cargo --version
 
-      # gal 2.3.0 缺少 Windows WinRT 链接支持，2.3.2 已修复。
       - name: Upgrade gal Windows build fix
         working-directory: app
         run: flutter pub add gal:2.3.2
 
-      # LocalSend 主程序的 winrt_ext.cpp 同样需要链接 windowsapp。
-      - name: Fix LocalSend WinRT linking
+      - name: Apply Windows source fixes
         working-directory: app
         shell: pwsh
         run: |
-          $path = "windows/runner/CMakeLists.txt"
-          $content = Get-Content -Path $path -Raw
+          $runnerPath = "windows/runner/CMakeLists.txt"
+          $runner = Get-Content -Path $runnerPath -Raw
 
-          $old = 'target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")'
-          $new = 'target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" windowsapp)'
+          $oldLink = 'target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")'
+          $newLink = 'target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" windowsapp)'
 
-          if (-not $content.Contains($old)) {
-            throw "Expected CMake target_link_libraries line was not found."
+          if (-not $runner.Contains($oldLink)) {
+            throw "Expected runner CMake link line was not found."
           }
 
-          Set-Content -Path $path -Value $content.Replace($old, $new) -NoNewline
+          Set-Content -Path $runnerPath -Value $runner.Replace($oldLink, $newLink) -NoNewline
+
+          $cmakePath = "windows/CMakeLists.txt"
+          $cmake = Get-Content -Path $cmakePath -Raw
+
+          $cmake = [regex]::Replace(
+            $cmake,
+            '(?m)^\s*"localsend_msix_helper\.msix"\r?\n',
+            ''
+          )
+
+          $cmake = [regex]::Replace(
+            $cmake,
+            '(?m)^\s*"install_msix_helper\.ps1"\r?\n',
+            ''
+          )
+
+          if ($cmake.Contains('"localsend_msix_helper.msix"')) {
+            throw "Failed to remove missing MSIX helper."
+          }
+
+          Set-Content -Path $cmakePath -Value $cmake -NoNewline
 
       - name: Build Windows
         working-directory: app
